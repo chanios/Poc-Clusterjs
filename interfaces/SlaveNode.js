@@ -1,109 +1,71 @@
-const { mkdirSync, writeFileSync, rmSync } = require("fs")
+const { mkdirSync } = require("fs")
 const { join } = require("path")
 const { unpack,pack } = require("../lib/utils")
-const { fork, spawn } = require("child_process");
-const { nanoid } = require("nanoid");
+const Worker = require("./SlaveFunction")
 module.exports = class SlaveNode {
     constructor(ws) {
         
         this.path = join(require('os').tmpdir(),'/chanios/poc_clustering_programming')
-        
 
-        this.functions = new Map()
+        /**
+         * @type {Map<String,import('./SlaveFunction')>}
+         */
+        this.workers = new Map()
         mkdirSync(this.path,{recursive:true})
-
-        ws.on('message',async m => {
-            m = unpack(m)
-            switch (m.op) {
-                case 2: // Create Function
+        this.ops = {
+            2: async m => { // Create Worker
+                let worker = new Worker(this,ws,{
+                    id: m.d.id,
+                    path: join(this.path,m.d.id)
+                })
+                try {
+                    await worker.init(m.d.func)
+                    this.workers.set(m.d.id,worker)
                     ws.send(pack({
                         op: 10,
-                        d: await this.initFunction(m.d.id,m.d.func),
+                        d: true,
                         c: m.c
                     }))
-                break;
-                case 3: // Use Function
-                    let worker = this.functions.get(m.d.id)
-                    if(worker) {
-                        let id = await nanoid()
-                        if(m.c) worker.callbacks.set(id,d=>{
-                            ws.send(pack({
-                                op: 10,
-                                d: d,
-                                c: m.c
-                            }))
-                        })
-                        worker.send({
-                            a: m.d.args,
-                            c: id
-                        })
-                    }
-                break;
-                default:
-                break;
-            }
-        })
-        ws.on('close',()=>{
-            this.functions.forEach(w=>{
-                console.log('Master Disconnected killing pid: ' + w.pid)
-                this.tidyFunction(w)
-            })
-        })
-        
-        process.on('beforeExit',()=>{
-            this.functions.forEach(w=>this.tidyFunction(w))
-        })
-    }
-    run(dir,command,args) {
-        return new Promise(r=>{
-            const _ = spawn(command + (process.platform === 'win32' ? '.cmd' : '') ,args,{
-                cwd: dir
-            })
-            _.on('close', r);
-        })
-
-    }
-    async tidyFunction(w) {
-        try {
-            await w.kill()
-            rmSync(join(this.path,w.id),{recursive:true})
-        } catch (error) {
-            console.error(error)
-        }
-    }
-    async initFunction(id,func) {
-        mkdirSync(join(this.path,id),{recursive:true})
-        await this.run(join(this.path,id),`npm`,['i',...func.require])
-        await writeFileSync(join(this.path,id,'func.js'),`
-        const func = (${func.execute});
-        process.on('message',async msg=>{
-            try{
-                process.send({d:{r:await func(...msg.a)},c:msg.c})
-            }catch(e) {
-                console.error(e)
-                process.send({d:{r:e.toString(),e:true},c:msg.c})
-            }
-        })`)
-        if(func.pre_execute) {
-            await writeFileSync(join(this.path,id,'pre_execute.js'),`const func = (${func.pre_execute.func});func(${JSON.stringify(func.pre_execute.args)})`)
-            await this.run(join(this.path,id),`node`,['pre_execute'])
-        }
-        let worker = fork(join(this.path,id,'func.js'))
-        worker.callbacks = new Map()
-        worker.id = id
-        worker.on('message',msg=>{
-            if(msg.c) {
-                let callback = worker.callbacks.get(msg.c)
-                if(callback) {
-                    worker.callbacks.delete(msg.c)
-                    callback(msg.d)
+                } catch (error) {
+                    console.error(error)
+                    worker.tidy()
+                    ws.send(pack({
+                        op: 10,
+                        d: false,
+                        c: m.c
+                    }))
+                }
+            },
+            3: async m => { // Use Worker
+                let worker = this.workers.get(m.d.id)
+                if(worker) {
+                    ws.send(pack({
+                        op: 10,
+                        d: await worker.use(m.d.args),
+                        c: m.c
+                    }))
+                }
+            },
+            4: async m => { // tidy Worker
+                let worker = this.workers.get(m.d.id)
+                if(worker) {
+                    ws.send(pack({
+                        op: 10,
+                        d: await worker.tidy(),
+                        c: m.c
+                    }))
                 }
             }
+        }
+        ws.on('message',async m => {
+            m = unpack(m)
+            this.ops[m.op] && this.ops[m.op](m)
         })
-        worker.on('close',()=>{
-            worker.callbacks = null
+        ws.on('close',()=>{
+            this.workers.forEach(w=>{
+                console.log('Master Disconnected killing pid: ' + w.child.pid)
+                w.tidy()
+            })
         })
-        this.functions.set(id,worker)
-        return
     }
 }

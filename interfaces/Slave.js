@@ -4,6 +4,7 @@ const SlaveNode = require('./SlaveNode')
 
 class Slave {
     constructor() {
+        
     }
     init(port,key) {
         const wss = new WebSocketServer({port:port})

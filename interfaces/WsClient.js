@@ -3,14 +3,34 @@ const WebSocket = require('ws')
 const EventsEmitter = require('events')
 const { nanoid } = require('nanoid')
 module.exports = class WsClient extends EventsEmitter {
-    constructor(){
+    constructor(options={}){
         super()
         this.ws = WebSocket
         this.callbacks = new Map()
 
+        this.timeout = options.timeout
         this.queue = []
         this.connected = false
         this.login_data = {}
+        this.ops = {
+            0: m => {
+                this.send({op:1,d:this.login_data})
+                this._flush_queue()
+                this.connected = true
+            },
+            3: m => {
+                this.connected = true
+                this.emit(m.t,...m.d)
+            },
+            10: m => {
+                let c = this.callbacks.get(m.c)
+                if(c) {
+                    c.r(m.d)
+                    clearTimeout(c.t)
+                    this.callbacks.delete(m.c)
+                }
+            }
+        }
     }
     destroy(){
         this.ws.close()
@@ -22,12 +42,14 @@ module.exports = class WsClient extends EventsEmitter {
     }
     craft_callback(callback_id){
         return new Promise(r=>{
-            this.callbacks.set(callback_id,{r,t: setTimeout(() => {
+            let t;
+            if(this.timeout) t = setTimeout(() => {
                 if(this.callbacks && this.callbacks.get(callback_id)){
                     this.callbacks.delete(callback_id)
                     r()
                 }
-            }, 60 * 1000)})
+            }, this.timeout) 
+            this.callbacks.set(callback_id,{r,t})
         })
     }
     _flush_queue() {
@@ -43,27 +65,7 @@ module.exports = class WsClient extends EventsEmitter {
         this.login_data = login_data
         this.ws.on('message',m=>{
             m = unpack(m)
-            switch (m.op) {
-                case 0:
-                    this.send({op:1,d:this.login_data})
-                    this._flush_queue()
-                    this.connected = true
-                break;
-                case 3:
-                    this.connected = true
-                    this.emit(m.t,...m.d)
-                break;
-                case 10:
-                    let c = this.callbacks.get(m.c)
-                    if(c) {
-                        c.r(m.d)
-                        clearTimeout(c.t)
-                        this.callbacks.delete(m.c)
-                    }
-                break;
-                default:
-                break;
-            }
+            this.ops[m.op] && this.ops[m.op](m)
         })
         this.ws.on('close',()=>{
             this.emit('close')

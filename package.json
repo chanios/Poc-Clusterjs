@@ -4,13 +4,12 @@
     "ws": "^8.4.1"
   },
   "name": "clusterjs",
-  "description": "just my experiment project :3",
-  "version": "0.0.1",
+  "description": "Simple way to create program that run on mutiple instances on nodejs",
+  "version": "0.0.2",
   "main": "poc.js",
   "directories": {
     "lib": "lib"
   },
-  "devDependencies": {},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

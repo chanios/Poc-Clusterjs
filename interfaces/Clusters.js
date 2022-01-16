@@ -3,17 +3,31 @@ const { sleep } = require("../lib/utils")
 const ClusterNode = require("./Node")
 
 class Clusters {
-    constructor(nodes = []) {
-        this.nodes = nodes.map(node=>new ClusterNode(this,node))
+    constructor(nodes = [],options={}) {
+        this.nodes = nodes.map(node=>new ClusterNode(this,{...node,ws:options.ws}))
     }
     async Function(func) {
         let id = nanoid()
+        await Promise.all(this.nodes.map(node=>node._CreateFunction(id,func).then(()=>console.log(`[${node.options.host}] > Settings for ${id} Finshed!`))))
+        return this._CreateFunctionDriver(id)
+    }
+    /**
+     * @private
+     */
+    async _CreateFunctionDriver(id) {
         let i = 0
-        let is_nodes_ready = false
-        await Promise.all(this.nodes.map(node=>node._CreateFunction(id,func))).then(()=>{
-            is_nodes_ready = true
-        })
-        return (...args) => {if(!is_nodes_ready) throw new Error('some node has not ready!');if(!this.nodes[i]) i = 0;return this.nodes[i++]._UseFunction(id,args)}
+        let _ = this
+        function main(...args) {
+            if(!_.nodes[i]) i = 0;
+            return _.nodes[i++]._UseFunction(id,args)
+        }
+        main.tidy = function() {
+            return Promise.all(_.nodes.map(node=>node._TidyFunction(id)))
+        }
+        main.all = function(...args) {
+            return Promise.all(_.nodes.map(node=>node._UseFunction(id,args)))
+        }
+        return main
     }
 }
 module.exports = Clusters
