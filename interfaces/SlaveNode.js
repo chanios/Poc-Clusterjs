@@ -55,6 +55,16 @@ module.exports = class SlaveNode {
                         c: m.c
                     }))
                 }
+            },
+            5: async m => { // kill worker(restart)
+                let worker = this.workers.get(m.d.id)
+                if(worker) {
+                    ws.send(pack({
+                        op: 10,
+                        d: await worker.restart(),
+                        c: m.c
+                    }))
+                }
             }
         }
         ws.on('message',async m => {
@@ -66,6 +76,7 @@ module.exports = class SlaveNode {
                 console.log('Master Disconnected killing pid: ' + w.child.pid)
                 w.tidy()
             })
+            this.workers = null
         })
     }
 }

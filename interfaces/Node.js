@@ -55,5 +55,13 @@ class ClusterNode extends WsClient {
             }
         },true).then(s=>{if(s) this.functions.set(id,func);return s})
     }
+    _KillWorkerOfFunction(id) {
+        return this.send({
+            op: 5,
+            d: {
+                id
+            }
+        },true)
+    }
 }
 module.exports = ClusterNode

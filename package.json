@@ -22,5 +22,11 @@
   "bugs": {
     "url": "https://github.com/chanios/Poc-Clusterjs/issues"
   },
-  "homepage": "https://github.com/chanios/Poc-Clusterjs#readme"
+  "homepage": "https://github.com/chanios/Poc-Clusterjs#readme",
+  "devDependencies": {
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.10.1",
+    "inquirer": "^8.2.0",
+    "term.js": "^0.0.7"
+  }
 }

@@ -27,6 +27,9 @@ class Clusters {
         main.all = function(...args) {
             return Promise.all(_.nodes.map(node=>node._UseFunction(id,args)))
         }
+        main.kill = function () {
+            return Promise.all(_.nodes.map(node=>node._KillWorkerOfFunction(id)))
+        }
         return main
     }
 }

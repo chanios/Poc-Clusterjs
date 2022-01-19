@@ -11,12 +11,19 @@ class Worker {
         this.path = options.path
         this.id = options.id
 
+        this.callbacks = new Map()
         this.child;
+    }
+    async restart() {
+        await this.child.kill()
+        return this.CreateChildProcess() && true
     }
     async tidy() {
         try {
             this.manager.workers.delete(this.id)
             await this.child.kill()
+            this.child = null
+            this.callbacks = null
             rmSync(this.path,{recursive:true})
             return true
         } catch (error) {
@@ -25,9 +32,10 @@ class Worker {
         }
     }
     use(args) {
+        if(!this.child) return;
         return new Promise(async r=>{
             let id = await nanoid()
-            this.child.callbacks.set(id,r)
+            this.callbacks.set(id,r)
             this.child.send({
                 a: args,
                 c: id
@@ -39,7 +47,6 @@ class Worker {
         let child;
         try {
             child = fork(join(this.path,'func.js'))
-            child.callbacks = new Map()
             child.on('error',this._error)
             child.on('message',msg=>{
                 if(msg.op == -1) {
@@ -49,9 +56,9 @@ class Worker {
                         d: msg.d
                     }))
                 } else if(msg.op == 1) {// Function result
-                    let callback = child.callbacks.get(msg.c)
+                    let callback = this.callbacks.get(msg.c)
                     if(callback) {
-                        child.callbacks.delete(msg.c)
+                        this.callbacks.delete(msg.c)
                         callback(msg.d)
                     }
                 } else if(msg.op == 2) {// Event
@@ -63,9 +70,7 @@ class Worker {
                     }))
                 }
             })
-            child.on('close',()=>{
-                child.callbacks = null
-            })
+            child.on('close',()=>this.callbacks && this.callbacks.forEach(c=>c({op:1,d:{r:'child closed before resolve',e:true}})) && this.callbacks.clear())
         } catch (e) {
             this._error(e)
         }
